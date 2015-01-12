@@ -5,21 +5,157 @@ output:
     keep_md: true
 ---
 
+```{r dependencies, echo=FALSE, results='hide', include=FALSE}
+library(dplyr)
+library(lubridate)
+library(lattice)
+```
 
 ## Loading and preprocessing the data
 
+### 1. Load the data
+First, we load the data into a data.frame
+```{r loading}
+# load activity data
+activity <- read.csv('activity.csv')
+head(activity)
+```
 
+
+### 2. Process/transform data to make it more usable 
+
+Then we move it into a *table data frame* to use **dplyr** to handle data
+```{r processing}
+# use dplyr to process data
+ta <- tbl_df(activity) %>%
+  mutate(
+    # parse dates
+    date=ymd(date),
+    # parse times    
+    interval=as.POSIXct(strptime(sprintf("%04d",interval),format="%H%M")),
+    timeofday=strftime(interval,"%H:%M")
+ ) %>%
+  print
+```
 
 ## What is mean total number of steps taken per day?
 
+### 1. Histogram of total number of daily steps
 
+First, let's summarize the steps by day
+```{r summarize.by.day}
+steps_by_day <- ta %>% 
+  select(date,steps) %>%
+  group_by(date) %>%
+  summarize(total_steps=sum(steps,na.rm=T)) %>%
+  print  
+```
+Now, we can plot a nice histogram
+```{r hist.steps.by.day}
+hist(steps_by_day$total_steps)
+```
+
+### 2. Calculate mean and median values
+
+And report **mean** and **median** values
+```{r mean.and.median }
+mean(steps_by_day$total_steps)
+median(steps_by_day$total_steps)
+```
 
 ## What is the average daily activity pattern?
 
+### 1. Time series plot of average number of steps across time intervals
 
+Again, the first step is to summarize the steps by interval (we also include the timeofday column that contains the interval nicely formatted as a HH:MM string)
+```{r summarize.by.interval}
+steps_by_interval <- ta %>%
+  group_by(interval,timeofday) %>%
+  summarize(mean_steps=mean(steps,na.rm=T)) %>%
+  print
+```
+
+```{r plot.steps.by.interval}
+plot(steps_by_interval$interval, steps_by_interval$mean_steps,type='l',ylab="Mean Steps", xlab="Time of Day")
+```
+
+### 2. Identify the 5 min interval that averages the max number of steps
+
+Using the `which.max()` function we identify the interval (time of day) that has the largest mean number of steps. Note that we show the time of day in HH:MM format instead of the raw HHMM format that the unprocessed data returns
+```{r max.interval }
+steps_by_interval[which.max(steps_by_interval$mean_steps),c('timeofday','mean_steps')]
+```
 
 ## Imputing missing values
 
+### 1. How many NAs are there in steps column?
 
+```{r count.nas }
+sum(is.na(activity$steps))
+```
+
+### 2. Filling the missing values
+
+We will replace the NAs with the average count of steps for the same interval across everyday
+
+### 3. Create a filled dataset
+
+```{r fill.dataset}
+ta_filled <- ta %>%
+  left_join(steps_by_interval) %>%
+  mutate(steps=ifelse(is.na(steps),mean_steps,steps)) %>%
+  select(date,interval,timeofday,steps) %>%
+  print
+```
+
+### 4. Analyze the filled dataset
+
+And now we analyze the resulting dataset
+```{r summarize.by.day.filled}
+steps_by_day_filled <- ta_filled %>% 
+  select(date,steps) %>%
+  group_by(date) %>%
+  summarize(total_steps=sum(steps,na.rm=T)) %>%
+  print  
+```
+
+Histogram:
+
+```{r hist.steps.by.day.filled}
+hist(steps_by_day_filled$total_steps)
+```
+
+And report **mean** and **median** values
+```{r mean.and.median.filled }
+mean(steps_by_day_filled$total_steps)
+median(steps_by_day_filled$total_steps)
+```
+
+Obviously, when we replace NA values with the mean values across all days for the given interval, the total number of steps per day is increased, because now we are counting more steps that were not counted before.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+First, we create a new grouped dataset using weekdays and intervals as grouping criteria, and then plot the mean number of steps across weekdays and weekends using lattice system:
+
+```{r weekday.analysis}
+
+# ensure weekdays are returned in english
+Sys.setlocale(locale='C')
+
+steps_by_weekday_interval <- ta %>%
+  mutate(weekday=as.factor(ifelse(
+    weekdays(date) %in% c('Sunday','Saturday'), 
+    "weekend",
+    "weekday"))) %>%
+  group_by(weekday,interval) %>%
+  summarize(mean_steps=mean(steps,na.rm=T)) %>%  
+  print
+
+xyplot(mean_steps ~ interval | weekday,
+       data=steps_by_weekday_interval,
+       type='l',
+       layout=c(1,2),
+       scales=list(format="%H:%M"))
+```
+
+**THE END**
